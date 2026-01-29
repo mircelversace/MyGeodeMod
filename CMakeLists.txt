@@ -11,5 +11,10 @@ endif()
 
 add_subdirectory($ENV{GEODE_SDK} ${CMAKE_CURRENT_BINARY_DIR}/geode)
 
+# Create the mod library FIRST (required before setup_geode_mod)
+add_library(${PROJECT_NAME} SHARED
+    src/main.cpp
+)
+
 # Setup the mod
 setup_geode_mod(${PROJECT_NAME})
