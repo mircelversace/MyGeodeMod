@@ -21,46 +21,56 @@ public:
             return;
         }
 
-        // TODO: In a real compiled mod, here we would:
-        // 1. Iterate selectedObjs
-        // 2. Scan for neighbors (using LevelEditorLayer object map)
-        // 3. Create new objects based on g_currentStyle
-        
-        // Simulating success for the template
-        Notification::create("Auto-Decoration Applied! (Simulation)", NotificationIcon::Success)->show();
+        const char* styleName = "Unknown";
+        if(g_currentStyle == DecoStyle::Glow) styleName = "Glow";
+        if(g_currentStyle == DecoStyle::Modern) styleName = "Modern";
+        if(g_currentStyle == DecoStyle::Tech) styleName = "Tech";
+
+        Notification::create(
+            fmt::format("Applied {} style to {} objects!", styleName, selectedObjs->count()).c_str(), 
+            NotificationIcon::Success
+        )->show();
     }
 };
 
 // ==========================================
-// POPUP MENU (Select Style) - Using Geode Popup
+// POPUP MENU (Select Style)
 // ==========================================
 class AutoDecoMenu : public geode::Popup<> {
 protected:
     bool setup() override {
-        setTitle("Select Style");
+        setTitle("AutoDecoration");
         
         auto menu = CCMenu::create();
         menu->setContentSize(m_mainLayer->getContentSize());
         menu->setPosition({0, 0});
         m_mainLayer->addChild(menu);
 
-        createBtn("Glow Style", 50, DecoStyle::Glow, menu);
-        createBtn("Modern Style", 0, DecoStyle::Modern, menu);
-        createBtn("Tech Style", -50, DecoStyle::Tech, menu);
+        auto center = m_mainLayer->getContentSize() / 2;
+
+        // Style buttons
+        createStyleBtn("Glow", center.height + 40, DecoStyle::Glow, menu, center.width);
+        createStyleBtn("Modern", center.height, DecoStyle::Modern, menu, center.width);
+        createStyleBtn("Tech", center.height - 40, DecoStyle::Tech, menu, center.width);
+
+        // Apply button at bottom
+        auto applySprite = ButtonSprite::create("APPLY TO SELECTION", 150, true, "bigFont.fnt", "GJ_button_01.png", 30, 0.5f);
+        auto applyBtn = CCMenuItemSpriteExtra::create(applySprite, this, menu_selector(AutoDecoMenu::onApply));
+        applyBtn->setPosition({center.width, 40});
+        menu->addChild(applyBtn);
 
         return true;
     }
 
-    void createBtn(const char* txt, float y, DecoStyle style, CCMenu* menu) {
-        auto sprite = ButtonSprite::create(txt);
-        auto btn = CCMenuItemSpriteExtra::create(sprite, this, menu_selector(AutoDecoMenu::onSelect));
+    void createStyleBtn(const char* txt, float y, DecoStyle style, CCMenu* menu, float centerX) {
+        auto sprite = ButtonSprite::create(txt, 80, true, "bigFont.fnt", "GJ_button_04.png", 25, 0.6f);
+        auto btn = CCMenuItemSpriteExtra::create(sprite, this, menu_selector(AutoDecoMenu::onSelectStyle));
         btn->setTag(static_cast<int>(style));
-        auto center = m_mainLayer->getContentSize() / 2;
-        btn->setPosition({center.width, center.height + y});
+        btn->setPosition({centerX, y});
         menu->addChild(btn);
     }
 
-    void onSelect(CCObject* sender) {
+    void onSelectStyle(CCObject* sender) {
         int val = static_cast<CCNode*>(sender)->getTag();
         g_currentStyle = static_cast<DecoStyle>(val);
         
@@ -69,14 +79,22 @@ protected:
         if(g_currentStyle == DecoStyle::Modern) name = "Modern";
         if(g_currentStyle == DecoStyle::Tech) name = "Tech";
 
-        Notification::create(fmt::format("{} Selected", name).c_str(), NotificationIcon::Info)->show();
+        Notification::create(fmt::format("{} style selected!", name).c_str(), NotificationIcon::Info)->show();
+    }
+
+    void onApply(CCObject* sender) {
+        // Get EditorUI from the game
+        auto editorUI = LevelEditorLayer::get()->m_editorUI;
+        if (editorUI) {
+            AutoBuilder::applyToSelection(editorUI);
+        }
         this->onClose(sender);
     }
 
 public:
     static AutoDecoMenu* create() {
         auto ret = new AutoDecoMenu();
-        if (ret && ret->initAnchored(300.f, 200.f)) {
+        if (ret && ret->initAnchored(280.f, 200.f)) {
             ret->autorelease();
             return ret;
         }
@@ -92,32 +110,33 @@ class $modify(MyEditorUI, EditorUI) {
     bool init(LevelEditorLayer* editorLayer) {
         if (!EditorUI::init(editorLayer)) return false;
 
-        // Get window size properly
+        // Create button and add to the pause menu area (top right)
+        auto menu = CCMenu::create();
+        menu->setPosition({0, 0});
+        this->addChild(menu, 100); // High z-order to be on top
+
         auto winSize = CCDirector::sharedDirector()->getWinSize();
 
-        // Find the menu to attach to (usually the left side menu or create a new one)
-        auto menu = this->getChildByID("editor-buttons-menu");
-        if (!menu) {
-            // Create our own menu if the expected one doesn't exist
-            auto newMenu = CCMenu::create();
-            newMenu->setID("autodeco-menu"_spr);
-            newMenu->setPosition({0, 0});
-            this->addChild(newMenu);
-            menu = newMenu;
-        }
+        // Create the AutoDeco button - positioned near the pause button
+        auto sprite = CCSprite::createWithSpriteFrameName("GJ_optionsBtn_001.png");
+        sprite->setScale(0.8f);
+        
+        auto btn = CCMenuItemSpriteExtra::create(sprite, this, menu_selector(MyEditorUI::onAutoDecoBtn));
+        btn->setPosition({winSize.width - 90, winSize.height - 25});
+        menu->addChild(btn);
 
-        // --- SHOW BUTTON ---
-        // This is the main button visible in editor
-        auto showSprite = ButtonSprite::create("AutoDeco", 60, true, "bigFont.fnt", "GJ_button_04.png", 30, 0.6f);
-        auto showBtn = CCMenuItemSpriteExtra::create(showSprite, this, menu_selector(MyEditorUI::onShowAutoDecoMenu));
-        showBtn->setID("show-autodeco-btn"_spr);
-        showBtn->setPosition({winSize.width - 70, winSize.height - 50});
-        static_cast<CCMenu*>(menu)->addChild(showBtn);
+        // Add a label on the button
+        auto label = CCLabelBMFont::create("AD", "bigFont.fnt");
+        label->setScale(0.4f);
+        label->setPosition(sprite->getContentSize() / 2);
+        sprite->addChild(label);
+
+        log::info("AutoDecoration mod loaded! Button added.");
 
         return true;
     }
 
-    void onShowAutoDecoMenu(CCObject*) {
+    void onAutoDecoBtn(CCObject*) {
         AutoDecoMenu::create()->show();
     }
 };
