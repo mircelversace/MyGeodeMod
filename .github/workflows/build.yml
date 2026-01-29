@@ -1,24 +1,33 @@
 name: Build Geode Mod
 
 on:
-  push:
-    branches: [ "main" ]
   workflow_dispatch:
+  push:
+    branches:
+      - '**'
 
 jobs:
   build:
-    name: Build Information
-    runs-on: windows-latest
-    
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+        - name: Windows
+          os: windows-latest
+          id: win
+
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.os }}
+
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Build the Mod
-        uses: geode-sdk/build-geode-mod@main
+      - name: Build the mod
+        uses: geode-sdk/build-geode-mod@master
         with:
           bindings: geode-sdk/bindings
           bindings-ref: main
-          target: windows
+          target: ${{ matrix.config.id }}
