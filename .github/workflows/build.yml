@@ -22,3 +22,9 @@ jobs:
         with:
           sdk: v4.0.0
           target: Win64
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mircels.auto_decoration.geode
+          path: build/*.geode
