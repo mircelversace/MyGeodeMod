@@ -4,9 +4,6 @@
 
 using namespace geode::prelude;
 
-// ==========================================
-// TEMPLATE STRUCTURE
-// ==========================================
 struct DecoItem {
     int objectID;
     float offsetX;
@@ -20,261 +17,201 @@ struct DecoTemplate {
     std::vector<DecoItem> items;
 };
 
-static std::vector<DecoTemplate> g_savedTemplates;
-static int g_currentIndex = 0;
+static std::vector<DecoTemplate> g_templates;
+static int g_idx = 0;
 
-// ==========================================
-// PRE-MADE TEMPLATES (Built-in styles)
-// ==========================================
-void initBuiltInTemplates() {
-    if (!g_savedTemplates.empty()) return;
+void initTemplates() {
+    if (!g_templates.empty()) return;
 
-    // Style 1: Simple Glow (centered behind)
-    DecoTemplate glow;
-    glow.name = "Glow";
-    glow.items.push_back({1736, 0, 0, 1.3f, 0}); // Soft glow centered
-    g_savedTemplates.push_back(glow);
-
-    // Style 2: Corner Dots
-    DecoTemplate corners;
-    corners.name = "Corners";
-    corners.items.push_back({1764, -12, -12, 0.3f, 0});
-    corners.items.push_back({1764, 12, -12, 0.3f, 0});
-    corners.items.push_back({1764, -12, 12, 0.3f, 0});
-    corners.items.push_back({1764, 12, 12, 0.3f, 0});
-    g_savedTemplates.push_back(corners);
-
-    // Style 3: Shadow offset
-    DecoTemplate shadow;
-    shadow.name = "Shadow";
-    shadow.items.push_back({1732, 4, -4, 1.1f, 0});
-    g_savedTemplates.push_back(shadow);
-
-    // Style 4: Double Glow
-    DecoTemplate dblGlow;
-    dblGlow.name = "DblGlow";
-    dblGlow.items.push_back({1736, 0, 0, 1.2f, 0});
-    dblGlow.items.push_back({1736, 0, 0, 1.6f, 0});
-    g_savedTemplates.push_back(dblGlow);
-
-    // Style 5: Horizontal lines
-    DecoTemplate hLines;
-    hLines.name = "HLines";
-    hLines.items.push_back({579, 0, 15, 0.8f, 0});
-    hLines.items.push_back({579, 0, -15, 0.8f, 0});
-    g_savedTemplates.push_back(hLines);
-
-    // Style 6: Vertical lines
-    DecoTemplate vLines;
-    vLines.name = "VLines";
-    vLines.items.push_back({579, 15, 0, 0.8f, 90});
-    vLines.items.push_back({579, -15, 0, 0.8f, 90});
-    g_savedTemplates.push_back(vLines);
-
-    // Style 7: X pattern
-    DecoTemplate xPat;
-    xPat.name = "XPattern";
-    xPat.items.push_back({579, 0, 0, 0.6f, 45});
-    xPat.items.push_back({579, 0, 0, 0.6f, -45});
-    g_savedTemplates.push_back(xPat);
-
-    // Style 8: Big Behind
-    DecoTemplate bigBg;
-    bigBg.name = "BigBG";
-    bigBg.items.push_back({211, 0, 0, 1.5f, 0});
-    g_savedTemplates.push_back(bigBg);
+    // Glow
+    g_templates.push_back({"Glow", {{1736, 0, 0, 1.3f, 0}}});
+    
+    // Corners
+    g_templates.push_back({"Corners", {
+        {1764, -12, -12, 0.3f, 0},
+        {1764, 12, -12, 0.3f, 0},
+        {1764, -12, 12, 0.3f, 0},
+        {1764, 12, 12, 0.3f, 0}
+    }});
+    
+    // Shadow
+    g_templates.push_back({"Shadow", {{1732, 4, -4, 1.1f, 0}}});
+    
+    // DblGlow
+    g_templates.push_back({"DblGlow", {
+        {1736, 0, 0, 1.2f, 0},
+        {1736, 0, 0, 1.6f, 0}
+    }});
+    
+    // HLines
+    g_templates.push_back({"HLines", {
+        {579, 0, 15, 0.8f, 0},
+        {579, 0, -15, 0.8f, 0}
+    }});
+    
+    // VLines
+    g_templates.push_back({"VLines", {
+        {579, 15, 0, 0.8f, 90},
+        {579, -15, 0, 0.8f, 90}
+    }});
+    
+    // Frame
+    g_templates.push_back({"Frame", {
+        {579, 0, 15, 0.8f, 0},
+        {579, 0, -15, 0.8f, 0},
+        {579, 15, 0, 0.8f, 90},
+        {579, -15, 0, 0.8f, 90}
+    }});
+    
+    // BigBG
+    g_templates.push_back({"BigBG", {{211, 0, 0, 1.5f, 0}}});
 }
 
-// ==========================================
-// DECORATION LOGIC
-// ==========================================
 class DecoSystem {
 public:
-    static void applyCurrentTemplate(EditorUI* ui) {
-        initBuiltInTemplates();
+    static void apply(EditorUI* ui) {
+        initTemplates();
         
-        if (g_savedTemplates.empty()) {
-            Notification::create("No templates!", NotificationIcon::Warning)->show();
-            return;
-        }
-
         auto lel = LevelEditorLayer::get();
-        auto selected = ui->getSelectedObjects();
+        auto sel = ui->getSelectedObjects();
         
-        if (!selected || selected->count() == 0) {
-            Notification::create("Select blocks first!", NotificationIcon::Warning)->show();
+        if (!sel || sel->count() == 0) {
+            Notification::create("Select blocks!", NotificationIcon::Warning)->show();
             return;
         }
 
-        auto& templ = g_savedTemplates[g_currentIndex];
-        int count = 0;
+        auto& t = g_templates[g_idx];
+        int n = 0;
 
-        // Apply template to EACH selected object
-        for (int i = 0; i < selected->count(); i++) {
-            auto baseObj = static_cast<GameObject*>(selected->objectAtIndex(i));
-            if (!baseObj) continue;
+        for (int i = 0; i < sel->count(); i++) {
+            auto base = static_cast<GameObject*>(sel->objectAtIndex(i));
+            if (!base) continue;
 
-            CCPoint basePos = baseObj->getPosition();
-            int baseZ = baseObj->getZOrder();
+            CCPoint pos = base->getPosition();
+            int z = base->getZOrder();
 
-            // Create each decoration item
-            for (auto& item : templ.items) {
-                CCPoint newPos = {basePos.x + item.offsetX, basePos.y + item.offsetY};
-                
-                auto newObj = lel->createObject(item.objectID, newPos, false);
-                if (newObj) {
-                    newObj->setScale(item.scale);
-                    newObj->setRotation(item.rotation);
-                    newObj->setZOrder(baseZ - 1); // Behind the block
-                    lel->addSpecial(newObj);
-                    count++;
+            for (auto& item : t.items) {
+                auto obj = lel->createObject(item.objectID, {pos.x + item.offsetX, pos.y + item.offsetY}, false);
+                if (obj) {
+                    obj->setScale(item.scale);
+                    obj->setRotation(item.rotation);
+                    obj->setZOrder(z - 1);
+                    lel->addSpecial(obj);
+                    n++;
                 }
             }
         }
 
         ui->deselectAll();
-        Notification::create(
-            fmt::format("{}: {} decorations!", templ.name, count).c_str(),
-            NotificationIcon::Success
-        )->show();
+        Notification::create(fmt::format("{}: +{}", t.name, n).c_str(), NotificationIcon::Success)->show();
     }
 
-    static void saveSelectionAsTemplate(EditorUI* ui, const std::string& name) {
-        auto selected = ui->getSelectedObjects();
+    // NEW: Select ONLY decorations, calculates center automatically
+    static void saveCustom(EditorUI* ui, const std::string& name) {
+        auto sel = ui->getSelectedObjects();
         
-        if (!selected || selected->count() < 2) {
-            Notification::create("Select 1 block + decorations!", NotificationIcon::Warning)->show();
+        if (!sel || sel->count() == 0) {
+            Notification::create("Select decorations only!", NotificationIcon::Warning)->show();
             return;
         }
 
-        // FIRST = reference block (we use its position but DON'T copy it)
-        auto refBlock = static_cast<GameObject*>(selected->objectAtIndex(0));
-        CCPoint refPos = refBlock->getPosition();
+        // Calculate center of all selected objects
+        float sumX = 0, sumY = 0;
+        for (int i = 0; i < sel->count(); i++) {
+            auto obj = static_cast<GameObject*>(sel->objectAtIndex(i));
+            if (obj) {
+                sumX += obj->getPosition().x;
+                sumY += obj->getPosition().y;
+            }
+        }
+        float centerX = sumX / sel->count();
+        float centerY = sumY / sel->count();
 
-        DecoTemplate newTempl;
-        newTempl.name = name;
+        DecoTemplate t;
+        t.name = name;
 
-        // REST = decorations to save (starting from index 1)
-        for (int i = 1; i < selected->count(); i++) {
-            auto obj = static_cast<GameObject*>(selected->objectAtIndex(i));
+        // Save all objects relative to calculated center
+        for (int i = 0; i < sel->count(); i++) {
+            auto obj = static_cast<GameObject*>(sel->objectAtIndex(i));
             if (!obj) continue;
 
             DecoItem item;
             item.objectID = obj->m_objectID;
-            item.offsetX = obj->getPosition().x - refPos.x;
-            item.offsetY = obj->getPosition().y - refPos.y;
+            item.offsetX = obj->getPosition().x - centerX;
+            item.offsetY = obj->getPosition().y - centerY;
             item.scale = obj->getScale();
             item.rotation = obj->getRotation();
-
-            newTempl.items.push_back(item);
+            t.items.push_back(item);
         }
 
-        if (newTempl.items.empty()) {
-            Notification::create("No decorations found!", NotificationIcon::Error)->show();
-            return;
-        }
+        g_templates.push_back(t);
+        g_idx = g_templates.size() - 1;
 
-        g_savedTemplates.push_back(newTempl);
-        g_currentIndex = g_savedTemplates.size() - 1;
-
-        Notification::create(
-            fmt::format("'{}' saved ({} items)", name, newTempl.items.size()).c_str(),
-            NotificationIcon::Success
-        )->show();
+        Notification::create(fmt::format("'{}' saved! {} items", name, t.items.size()).c_str(), NotificationIcon::Success)->show();
     }
 
-    static void next() {
-        initBuiltInTemplates();
-        if (g_savedTemplates.empty()) return;
-        g_currentIndex = (g_currentIndex + 1) % g_savedTemplates.size();
-    }
-
-    static void prev() {
-        initBuiltInTemplates();
-        if (g_savedTemplates.empty()) return;
-        g_currentIndex = (g_currentIndex - 1 + g_savedTemplates.size()) % g_savedTemplates.size();
-    }
-
-    static std::string currentName() {
-        initBuiltInTemplates();
-        if (g_savedTemplates.empty()) return "None";
-        return g_savedTemplates[g_currentIndex].name;
-    }
-
-    static int total() {
-        initBuiltInTemplates();
-        return g_savedTemplates.size();
-    }
+    static void next() { initTemplates(); g_idx = (g_idx + 1) % g_templates.size(); }
+    static void prev() { initTemplates(); g_idx = (g_idx - 1 + g_templates.size()) % g_templates.size(); }
+    static std::string name() { initTemplates(); return g_templates[g_idx].name; }
+    static int total() { initTemplates(); return g_templates.size(); }
 };
 
-// ==========================================
-// SAVE POPUP
-// ==========================================
 class SavePopup : public geode::Popup<EditorUI*> {
     EditorUI* m_ui;
     TextInput* m_input;
 
     bool setup(EditorUI* ui) override {
         m_ui = ui;
-        setTitle("Save Custom Style");
+        setTitle("Save Style");
 
         auto c = m_mainLayer->getContentSize() / 2;
 
-        auto info = CCLabelBMFont::create(
-            "Select BLOCK first,\nthen DECORATIONS around it",
-            "chatFont.fnt"
-        );
-        info->setPosition({c.width, c.height + 25});
+        auto info = CCLabelBMFont::create("Select ONLY decorations\n(NOT the block!)", "chatFont.fnt");
+        info->setPosition({c.width, c.height + 20});
         info->setScale(0.55f);
         info->setAlignment(kCCTextAlignmentCenter);
         m_mainLayer->addChild(info);
 
-        m_input = TextInput::create(120, "Style Name");
-        m_input->setPosition({c.width, c.height - 5});
+        m_input = TextInput::create(100, "Name");
+        m_input->setPosition({c.width, c.height - 10});
         m_mainLayer->addChild(m_input);
 
         auto menu = CCMenu::create();
         menu->setPosition({0, 0});
         m_mainLayer->addChild(menu);
 
-        auto saveBtn = CCMenuItemSpriteExtra::create(
-            ButtonSprite::create("SAVE", 60, true, "bigFont.fnt", "GJ_button_01.png", 25, 0.6f),
+        auto btn = CCMenuItemSpriteExtra::create(
+            ButtonSprite::create("SAVE", 50, true, "bigFont.fnt", "GJ_button_01.png", 22, 0.6f),
             this, menu_selector(SavePopup::onSave)
         );
-        saveBtn->setPosition({c.width, c.height - 40});
-        menu->addChild(saveBtn);
+        btn->setPosition({c.width, c.height - 40});
+        menu->addChild(btn);
 
         return true;
     }
 
     void onSave(CCObject*) {
-        std::string name = m_input->getString();
-        if (name.empty()) name = "Custom" + std::to_string(DecoSystem::total());
-        DecoSystem::saveSelectionAsTemplate(m_ui, name);
+        std::string n = m_input->getString();
+        if (n.empty()) n = "Custom" + std::to_string(DecoSystem::total());
+        DecoSystem::saveCustom(m_ui, n);
         onClose(nullptr);
     }
 
 public:
     static SavePopup* create(EditorUI* ui) {
         auto ret = new SavePopup();
-        if (ret && ret->initAnchored(200.f, 130.f, ui)) {
-            ret->autorelease();
-            return ret;
-        }
+        if (ret && ret->initAnchored(180.f, 120.f, ui)) { ret->autorelease(); return ret; }
         CC_SAFE_DELETE(ret);
         return nullptr;
     }
 };
 
-// ==========================================
-// MAIN MENU
-// ==========================================
 class MainMenu : public geode::Popup<EditorUI*> {
     EditorUI* m_ui;
 
     bool setup(EditorUI* ui) override {
         m_ui = ui;
-        setTitle("AutoDecoration");
+        setTitle("AutoDeco");
 
         auto menu = CCMenu::create();
         menu->setPosition({0, 0});
@@ -282,129 +219,94 @@ class MainMenu : public geode::Popup<EditorUI*> {
 
         auto c = m_mainLayer->getContentSize() / 2;
 
-        // Style selector
-        auto styleLabel = CCLabelBMFont::create("Style:", "goldFont.fnt");
-        styleLabel->setPosition({c.width - 50, c.height + 35});
-        styleLabel->setScale(0.5f);
-        m_mainLayer->addChild(styleLabel);
-
-        auto styleName = CCLabelBMFont::create(DecoSystem::currentName().c_str(), "bigFont.fnt");
-        styleName->setPosition({c.width + 20, c.height + 35});
-        styleName->setScale(0.45f);
+        // Style name
+        auto styleName = CCLabelBMFont::create(DecoSystem::name().c_str(), "bigFont.fnt");
+        styleName->setPosition({c.width, c.height + 30});
+        styleName->setScale(0.5f);
         styleName->setColor({100, 255, 100});
         m_mainLayer->addChild(styleName);
 
-        // Navigation arrows
-        auto prevBtn = CCMenuItemSpriteExtra::create(
+        // Arrows
+        auto prev = CCMenuItemSpriteExtra::create(
             CCSprite::createWithSpriteFrameName("GJ_arrow_01_001.png"),
             this, menu_selector(MainMenu::onPrev)
         );
-        prevBtn->setPosition({c.width - 90, c.height + 35});
-        prevBtn->setScale(0.5f);
-        menu->addChild(prevBtn);
+        prev->setPosition({c.width - 70, c.height + 30});
+        prev->setScale(0.5f);
+        menu->addChild(prev);
 
-        auto nextBtn = CCMenuItemSpriteExtra::create(
+        auto next = CCMenuItemSpriteExtra::create(
             CCSprite::createWithSpriteFrameName("GJ_arrow_01_001.png"),
             this, menu_selector(MainMenu::onNext)
         );
-        nextBtn->setPosition({c.width + 90, c.height + 35});
-        nextBtn->setScale(-0.5f);
-        menu->addChild(nextBtn);
+        next->setPosition({c.width + 70, c.height + 30});
+        next->setScale(-0.5f);
+        menu->addChild(next);
 
         // Counter
-        auto counter = CCLabelBMFont::create(
-            fmt::format("{}/{}", g_currentIndex + 1, DecoSystem::total()).c_str(),
-            "chatFont.fnt"
-        );
-        counter->setPosition({c.width, c.height + 10});
-        counter->setScale(0.6f);
-        m_mainLayer->addChild(counter);
+        auto cnt = CCLabelBMFont::create(fmt::format("{}/{}", g_idx + 1, DecoSystem::total()).c_str(), "chatFont.fnt");
+        cnt->setPosition({c.width, c.height + 8});
+        cnt->setScale(0.5f);
+        m_mainLayer->addChild(cnt);
 
-        // APPLY button (big, green)
+        // Apply button
         auto applyBtn = CCMenuItemSpriteExtra::create(
-            ButtonSprite::create("APPLY TO SELECTION", 150, true, "bigFont.fnt", "GJ_button_01.png", 30, 0.5f),
+            ButtonSprite::create("APPLY", 80, true, "bigFont.fnt", "GJ_button_01.png", 28, 0.6f),
             this, menu_selector(MainMenu::onApply)
         );
-        applyBtn->setPosition({c.width, c.height - 25});
+        applyBtn->setPosition({c.width, c.height - 20});
         menu->addChild(applyBtn);
 
-        // Save custom button
+        // Save button
         auto saveBtn = CCMenuItemSpriteExtra::create(
-            ButtonSprite::create("Save Custom Style", 130, true, "bigFont.fnt", "GJ_button_05.png", 22, 0.45f),
-            this, menu_selector(MainMenu::onSaveCustom)
+            ButtonSprite::create("Save New", 70, true, "bigFont.fnt", "GJ_button_05.png", 20, 0.5f),
+            this, menu_selector(MainMenu::onSave)
         );
-        saveBtn->setPosition({c.width, c.height - 60});
+        saveBtn->setPosition({c.width, c.height - 50});
         menu->addChild(saveBtn);
 
         return true;
     }
 
-    void onPrev(CCObject*) {
-        DecoSystem::prev();
-        onClose(nullptr);
-        MainMenu::create(m_ui)->show();
-    }
-
-    void onNext(CCObject*) {
-        DecoSystem::next();
-        onClose(nullptr);
-        MainMenu::create(m_ui)->show();
-    }
-
-    void onApply(CCObject*) {
-        DecoSystem::applyCurrentTemplate(m_ui);
-        onClose(nullptr);
-    }
-
-    void onSaveCustom(CCObject*) {
-        onClose(nullptr);
-        SavePopup::create(m_ui)->show();
-    }
+    void onPrev(CCObject*) { DecoSystem::prev(); onClose(nullptr); MainMenu::create(m_ui)->show(); }
+    void onNext(CCObject*) { DecoSystem::next(); onClose(nullptr); MainMenu::create(m_ui)->show(); }
+    void onApply(CCObject*) { DecoSystem::apply(m_ui); onClose(nullptr); }
+    void onSave(CCObject*) { onClose(nullptr); SavePopup::create(m_ui)->show(); }
 
 public:
     static MainMenu* create(EditorUI* ui) {
         auto ret = new MainMenu();
-        if (ret && ret->initAnchored(280.f, 150.f, ui)) {
-            ret->autorelease();
-            return ret;
-        }
+        if (ret && ret->initAnchored(220.f, 130.f, ui)) { ret->autorelease(); return ret; }
         CC_SAFE_DELETE(ret);
         return nullptr;
     }
 };
 
-// ==========================================
-// EDITOR HOOK
-// ==========================================
 class $modify(MyEditorUI, EditorUI) {
-    bool init(LevelEditorLayer* editorLayer) {
-        if (!EditorUI::init(editorLayer)) return false;
-
-        initBuiltInTemplates();
+    bool init(LevelEditorLayer* el) {
+        if (!EditorUI::init(el)) return false;
+        initTemplates();
 
         auto menu = CCMenu::create();
         menu->setPosition({0, 0});
         this->addChild(menu, 100);
 
-        auto winSize = CCDirector::sharedDirector()->getWinSize();
+        auto ws = CCDirector::sharedDirector()->getWinSize();
 
-        auto sprite = CCSprite::createWithSpriteFrameName("GJ_optionsBtn_001.png");
-        sprite->setScale(0.5f);
+        auto spr = CCSprite::createWithSpriteFrameName("GJ_optionsBtn_001.png");
+        spr->setScale(0.45f);
         
-        auto btn = CCMenuItemSpriteExtra::create(sprite, this, menu_selector(MyEditorUI::openMenu));
-        btn->setPosition({winSize.width - 65, winSize.height - 18});
+        auto btn = CCMenuItemSpriteExtra::create(spr, this, menu_selector(MyEditorUI::openMenu));
+        btn->setPosition({ws.width - 60, ws.height - 16});
         menu->addChild(btn);
 
-        auto label = CCLabelBMFont::create("AD", "bigFont.fnt");
-        label->setScale(0.2f);
-        label->setPosition(sprite->getContentSize() / 2);
-        sprite->addChild(label);
+        auto lbl = CCLabelBMFont::create("AD", "bigFont.fnt");
+        lbl->setScale(0.18f);
+        lbl->setPosition(spr->getContentSize() / 2);
+        spr->addChild(lbl);
 
-        log::info("AutoDecoration v5.0 loaded - 8 built-in styles!");
         return true;
     }
 
-    void openMenu(CCObject*) {
-        MainMenu::create(this)->show();
-    }
+    void openMenu(CCObject*) { MainMenu::create(this)->show(); }
 };
