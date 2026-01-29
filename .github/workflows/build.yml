@@ -8,16 +8,8 @@ on:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        config:
-        - name: Windows
-          os: windows-latest
-          id: win
-
-    name: ${{ matrix.config.name }}
-    runs-on: ${{ matrix.config.os }}
+    name: Build for Windows
+    runs-on: windows-latest
 
     steps:
       - name: Checkout
@@ -28,6 +20,5 @@ jobs:
       - name: Build the mod
         uses: geode-sdk/build-geode-mod@main
         with:
-          bindings: geode-sdk/bindings
-          bindings-ref: main
-          target: ${{ matrix.config.id }}
+          sdk: v4.0.0
+          target: Win64
