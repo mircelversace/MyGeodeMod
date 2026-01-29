@@ -7,16 +7,18 @@ on:
 
 jobs:
   build:
-    name: Build Mod
+    name: Build Information
     runs-on: windows-latest
+    
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Build with Geode SDK
+      - name: Build the Mod
         uses: geode-sdk/build-geode-mod@main
         with:
-          combine: true
+          bindings: geode-sdk/bindings
+          bindings-ref: main
           target: windows
