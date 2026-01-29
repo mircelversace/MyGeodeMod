@@ -1,120 +1,136 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/EditorUI.hpp>
-#include <Geode/utils/cocos.hpp>
 #include <vector>
 
 using namespace geode::prelude;
 
 // ==========================================
-// GLOBALS & TYPES
+// TEMPLATE SYSTEM - Stores PATTERN not copies
 // ==========================================
-enum class DecoStyle { 
-    Glow,           // Soft glow behind blocks
-    Outline,        // White outline around blocks  
-    Shadow,         // Dark shadow beneath
-    Neon,           // Bright neon effect
-    Gradient,       // Gradient fade effect
-    CustomTemplate  // User-saved template
+struct DecoPattern {
+    int objectID;
+    float relativeX;      // Position relative to base block
+    float relativeY;
+    float scale;
+    float rotation;
+    int mainColorChannel; // Color channel for main color
+    int secColorChannel;  // Color channel for secondary color
+    int zOrder;           // Z layer relative to base
+    bool blending;        // Blending mode
 };
 
-static DecoStyle g_currentStyle = DecoStyle::Glow;
-
-// Template storage - stores relative positions of decoration objects
-struct DecoTemplate {
+struct Template {
     std::string name;
-    std::vector<std::tuple<int, float, float, float, float>> objects; // objectID, relX, relY, scale, rotation
+    std::vector<DecoPattern> patterns;
 };
 
-static std::vector<DecoTemplate> g_templates;
-static int g_selectedTemplate = -1;
+static std::vector<Template> g_templates;
+static int g_selectedTemplate = 0;
 
-// Better object IDs that actually look good
-namespace DecoIDs {
-    // Glows (work well)
-    constexpr int GLOW_SQUARE_FULL = 1731;   // Full square glow
-    constexpr int GLOW_GRADIENT = 1732;       // Gradient glow
-    constexpr int GLOW_SOFT = 1736;           // Soft glow
-    
-    // Outlines
-    constexpr int WHITE_SQUARE = 211;         // Simple white outline
-    constexpr int THIN_LINE = 579;            // Thin line
-    
-    // Decorative
-    constexpr int DECO_LINE = 580;            // Decorative line
-    constexpr int CORNER_PIECE = 589;         // Corner decoration
-    constexpr int ARROW_DECO = 1354;          // Arrow/tech deco
-}
+// ==========================================
+// BUILT-IN STYLES (Don't need saving)
+// ==========================================
+enum class BuiltInStyle { None, Glow, Outline, Shadow };
+static BuiltInStyle g_builtInStyle = BuiltInStyle::None;
 
 // ==========================================
 // TEMPLATE MANAGER
 // ==========================================
-class TemplateManager {
+class TemplateSystem {
 public:
-    static void saveSelectionAsTemplate(EditorUI* ui, const std::string& name) {
-        auto selectedObjs = ui->getSelectedObjects();
-        if (!selectedObjs || selectedObjs->count() < 2) {
-            Notification::create("Select at least 2 objects (1 base + decorations)!", NotificationIcon::Warning)->show();
-            return;
+    // Save selected decorations as a reusable pattern
+    static bool saveAsTemplate(EditorUI* ui, const std::string& name) {
+        auto selected = ui->getSelectedObjects();
+        if (!selected || selected->count() < 2) {
+            Notification::create("Select: 1 BASE block + decorations around it!", NotificationIcon::Warning)->show();
+            return false;
         }
 
-        // First selected object is the "base" - others are decorations relative to it
-        auto baseObj = static_cast<GameObject*>(selectedObjs->objectAtIndex(0));
+        // First object = BASE (the main block)
+        auto baseObj = static_cast<GameObject*>(selected->objectAtIndex(0));
         CCPoint basePos = baseObj->getPosition();
 
-        DecoTemplate templ;
+        Template templ;
         templ.name = name;
 
-        // Store all other objects relative to base
-        for (int i = 1; i < selectedObjs->count(); i++) {
-            auto obj = static_cast<GameObject*>(selectedObjs->objectAtIndex(i));
+        // Remaining objects = decorations (store their pattern relative to base)
+        for (int i = 1; i < selected->count(); i++) {
+            auto obj = static_cast<GameObject*>(selected->objectAtIndex(i));
             if (!obj) continue;
 
-            float relX = obj->getPosition().x - basePos.x;
-            float relY = obj->getPosition().y - basePos.y;
-            float scale = obj->getScale();
-            float rotation = obj->getRotation();
-            int objID = obj->m_objectID;
+            DecoPattern pattern;
+            pattern.objectID = obj->m_objectID;
+            pattern.relativeX = obj->getPosition().x - basePos.x;
+            pattern.relativeY = obj->getPosition().y - basePos.y;
+            pattern.scale = obj->getScale();
+            pattern.rotation = obj->getRotation();
+            pattern.zOrder = obj->getZOrder() - baseObj->getZOrder();
+            pattern.blending = obj->m_hasNoGlow; // Blending setting
+            
+            // Capture color channels (THIS IS THE KEY!)
+            pattern.mainColorChannel = obj->m_baseColorID;
+            pattern.secColorChannel = obj->m_detailColorID;
 
-            templ.objects.push_back({objID, relX, relY, scale, rotation});
+            templ.patterns.push_back(pattern);
         }
 
         g_templates.push_back(templ);
         g_selectedTemplate = g_templates.size() - 1;
 
         Notification::create(
-            fmt::format("Template '{}' saved! ({} decorations)", name, templ.objects.size()).c_str(),
+            fmt::format("'{}' saved! {} deco patterns", name, templ.patterns.size()).c_str(),
             NotificationIcon::Success
         )->show();
+        return true;
     }
 
-    static void applyTemplate(EditorUI* ui, int templateIndex) {
-        if (templateIndex < 0 || templateIndex >= (int)g_templates.size()) {
-            Notification::create("No template selected!", NotificationIcon::Warning)->show();
+    // Apply template pattern to selected blocks
+    static void applyTemplate(EditorUI* ui) {
+        if (g_templates.empty() || g_selectedTemplate < 0) {
+            Notification::create("No template saved! Save one first.", NotificationIcon::Warning)->show();
             return;
         }
 
         auto lel = LevelEditorLayer::get();
-        auto selectedObjs = ui->getSelectedObjects();
-        if (!selectedObjs || selectedObjs->count() == 0) {
-            Notification::create("Select blocks first!", NotificationIcon::Warning)->show();
+        auto selected = ui->getSelectedObjects();
+        if (!selected || selected->count() == 0) {
+            Notification::create("Select blocks to decorate!", NotificationIcon::Warning)->show();
             return;
         }
 
-        auto& templ = g_templates[templateIndex];
+        auto& templ = g_templates[g_selectedTemplate];
         int created = 0;
 
-        for (int i = 0; i < selectedObjs->count(); i++) {
-            auto baseObj = static_cast<GameObject*>(selectedObjs->objectAtIndex(i));
+        // For each selected block, apply the pattern
+        for (int i = 0; i < selected->count(); i++) {
+            auto baseObj = static_cast<GameObject*>(selected->objectAtIndex(i));
             if (!baseObj) continue;
 
             CCPoint basePos = baseObj->getPosition();
+            int baseZ = baseObj->getZOrder();
 
-            for (auto& [objID, relX, relY, scale, rotation] : templ.objects) {
-                CCPoint newPos = {basePos.x + relX, basePos.y + relY};
-                auto newObj = lel->createObject(objID, newPos, false);
+            // Create each decoration from the pattern
+            for (auto& pattern : templ.patterns) {
+                CCPoint newPos = {
+                    basePos.x + pattern.relativeX,
+                    basePos.y + pattern.relativeY
+                };
+
+                // Create new object
+                auto newObj = lel->createObject(pattern.objectID, newPos, false);
                 if (newObj) {
-                    newObj->setScale(scale);
-                    newObj->setRotation(rotation);
+                    newObj->setScale(pattern.scale);
+                    newObj->setRotation(pattern.rotation);
+                    newObj->setZOrder(baseZ + pattern.zOrder);
+                    
+                    // Apply color channels from pattern!
+                    newObj->m_baseColorID = pattern.mainColorChannel;
+                    newObj->m_detailColorID = pattern.secColorChannel;
+                    newObj->m_hasNoGlow = pattern.blending;
+                    
+                    // Update the object's appearance
+                    newObj->updateObjectEditorColor();
+                    
                     lel->addSpecial(newObj);
                     created++;
                 }
@@ -123,52 +139,53 @@ public:
 
         ui->deselectAll();
         Notification::create(
-            fmt::format("Applied '{}' - {} decorations added!", templ.name, created).c_str(),
+            fmt::format("Applied '{}': {} decorations!", templ.name, created).c_str(),
             NotificationIcon::Success
         )->show();
+    }
+
+    // Cycle through saved templates
+    static void nextTemplate() {
+        if (g_templates.empty()) return;
+        g_selectedTemplate = (g_selectedTemplate + 1) % g_templates.size();
+    }
+
+    static std::string getCurrentTemplateName() {
+        if (g_templates.empty()) return "None";
+        return g_templates[g_selectedTemplate].name;
     }
 };
 
 // ==========================================
-// DECORATION LOGIC
+// SIMPLE BUILT-IN DECORATIONS
 // ==========================================
-class AutoDecorator {
+class SimpleDecorator {
 public:
-    static void applyDecoration(EditorUI* ui) {
-        if (g_currentStyle == DecoStyle::CustomTemplate) {
-            TemplateManager::applyTemplate(ui, g_selectedTemplate);
-            return;
-        }
-
+    static void apply(EditorUI* ui) {
         auto lel = LevelEditorLayer::get();
-        auto selectedObjs = ui->getSelectedObjects();
-        if (!selectedObjs || selectedObjs->count() == 0) {
+        auto selected = ui->getSelectedObjects();
+        if (!selected || selected->count() == 0) {
             Notification::create("Select blocks first!", NotificationIcon::Warning)->show();
             return;
         }
 
         int created = 0;
-        for (int i = 0; i < selectedObjs->count(); i++) {
-            auto obj = static_cast<GameObject*>(selectedObjs->objectAtIndex(i));
+        for (int i = 0; i < selected->count(); i++) {
+            auto obj = static_cast<GameObject*>(selected->objectAtIndex(i));
             if (!obj) continue;
 
             CCPoint pos = obj->getPosition();
+            int baseZ = obj->getZOrder();
 
-            switch (g_currentStyle) {
-                case DecoStyle::Glow:
-                    created += addGlow(lel, pos, obj);
+            switch (g_builtInStyle) {
+                case BuiltInStyle::Glow:
+                    created += createGlow(lel, pos, baseZ);
                     break;
-                case DecoStyle::Outline:
-                    created += addOutline(lel, pos, obj);
+                case BuiltInStyle::Outline:
+                    created += createOutline(lel, pos, baseZ);
                     break;
-                case DecoStyle::Shadow:
-                    created += addShadow(lel, pos, obj);
-                    break;
-                case DecoStyle::Neon:
-                    created += addNeon(lel, pos, obj);
-                    break;
-                case DecoStyle::Gradient:
-                    created += addGradient(lel, pos, obj);
+                case BuiltInStyle::Shadow:
+                    created += createShadow(lel, pos, baseZ);
                     break;
                 default:
                     break;
@@ -176,104 +193,91 @@ public:
         }
 
         ui->deselectAll();
-        Notification::create(fmt::format("{} decorations added!", created).c_str(), NotificationIcon::Success)->show();
+        if (created > 0) {
+            Notification::create(fmt::format("{} decorations added!", created).c_str(), NotificationIcon::Success)->show();
+        }
     }
 
 private:
-    static GameObject* create(LevelEditorLayer* lel, int id, CCPoint pos, float scale = 1.0f, float rotation = 0.0f) {
-        auto obj = lel->createObject(id, pos, false);
+    static int createGlow(LevelEditorLayer* lel, CCPoint pos, int baseZ) {
+        // Object 1736 is a soft glow square
+        auto obj = lel->createObject(1736, pos, false);
         if (obj) {
-            obj->setScale(scale);
-            obj->setRotation(rotation);
+            obj->setScale(1.5f);
+            obj->setZOrder(baseZ - 1);
             lel->addSpecial(obj);
-        }
-        return obj;
-    }
-
-    static int addGlow(LevelEditorLayer* lel, CCPoint pos, GameObject* base) {
-        // Single large glow behind
-        auto glow = create(lel, DecoIDs::GLOW_SOFT, pos, 1.5f);
-        if (glow) {
-            glow->setZOrder(base->getZOrder() - 1);
             return 1;
         }
         return 0;
     }
 
-    static int addOutline(LevelEditorLayer* lel, CCPoint pos, GameObject* base) {
+    static int createOutline(LevelEditorLayer* lel, CCPoint pos, int baseZ) {
         int count = 0;
-        float offset = 15.0f;
+        float offset = 16.0f;
         
-        // 4 lines around the block
-        if (create(lel, DecoIDs::THIN_LINE, {pos.x, pos.y + offset}, 0.5f, 0)) count++;
-        if (create(lel, DecoIDs::THIN_LINE, {pos.x, pos.y - offset}, 0.5f, 0)) count++;
-        if (create(lel, DecoIDs::THIN_LINE, {pos.x - offset, pos.y}, 0.5f, 90)) count++;
-        if (create(lel, DecoIDs::THIN_LINE, {pos.x + offset, pos.y}, 0.5f, 90)) count++;
+        // Object 1764 is outline glow
+        std::vector<CCPoint> offsets = {
+            {0, offset}, {0, -offset}, {-offset, 0}, {offset, 0}
+        };
         
+        for (auto& off : offsets) {
+            auto obj = lel->createObject(1764, {pos.x + off.x, pos.y + off.y}, false);
+            if (obj) {
+                obj->setScale(0.5f);
+                obj->setZOrder(baseZ + 1);
+                lel->addSpecial(obj);
+                count++;
+            }
+        }
         return count;
     }
 
-    static int addShadow(LevelEditorLayer* lel, CCPoint pos, GameObject* base) {
-        // Shadow offset down-right
-        auto shadow = create(lel, DecoIDs::GLOW_GRADIENT, {pos.x + 8, pos.y - 8}, 1.2f);
-        if (shadow) {
-            shadow->setZOrder(base->getZOrder() - 2);
+    static int createShadow(LevelEditorLayer* lel, CCPoint pos, int baseZ) {
+        auto obj = lel->createObject(1732, {pos.x + 5, pos.y - 5}, false);
+        if (obj) {
+            obj->setScale(1.2f);
+            obj->setZOrder(baseZ - 2);
+            lel->addSpecial(obj);
             return 1;
         }
         return 0;
-    }
-
-    static int addNeon(LevelEditorLayer* lel, CCPoint pos, GameObject* base) {
-        int count = 0;
-        
-        // Multiple glows for neon effect
-        if (create(lel, DecoIDs::GLOW_SQUARE_FULL, pos, 1.3f)) count++;
-        if (create(lel, DecoIDs::GLOW_SOFT, pos, 1.6f)) count++;
-        
-        return count;
-    }
-
-    static int addGradient(LevelEditorLayer* lel, CCPoint pos, GameObject* base) {
-        int count = 0;
-        
-        // Gradient glows at different positions
-        if (create(lel, DecoIDs::GLOW_GRADIENT, {pos.x, pos.y + 20}, 0.8f)) count++;
-        if (create(lel, DecoIDs::GLOW_GRADIENT, {pos.x, pos.y - 20}, 0.8f, 180)) count++;
-        
-        return count;
     }
 };
 
 // ==========================================
-// TEMPLATE NAME INPUT POPUP
+// NAME INPUT POPUP
 // ==========================================
-class TemplateNamePopup : public geode::Popup<EditorUI*> {
+class SaveTemplatePopup : public geode::Popup<EditorUI*> {
 protected:
-    EditorUI* m_editorUI;
-    TextInput* m_input;
+    EditorUI* m_ui;
+    TextInput* m_nameInput;
 
     bool setup(EditorUI* ui) override {
-        m_editorUI = ui;
+        m_ui = ui;
         setTitle("Save Template");
 
         auto center = m_mainLayer->getContentSize() / 2;
 
-        auto label = CCLabelBMFont::create("Enter template name:", "chatFont.fnt");
-        label->setPosition({center.width, center.height + 30});
-        label->setScale(0.7f);
-        m_mainLayer->addChild(label);
+        auto infoLabel = CCLabelBMFont::create(
+            "Select BASE block first,\nthen decorations around it.",
+            "chatFont.fnt"
+        );
+        infoLabel->setPosition({center.width, center.height + 35});
+        infoLabel->setScale(0.55f);
+        infoLabel->setAlignment(kCCTextAlignmentCenter);
+        m_mainLayer->addChild(infoLabel);
 
-        m_input = TextInput::create(150, "Template Name");
-        m_input->setPosition({center.width, center.height});
-        m_mainLayer->addChild(m_input);
+        m_nameInput = TextInput::create(140, "Template Name");
+        m_nameInput->setPosition({center.width, center.height});
+        m_mainLayer->addChild(m_nameInput);
 
         auto menu = CCMenu::create();
         menu->setPosition({0, 0});
         m_mainLayer->addChild(menu);
 
         auto saveBtn = CCMenuItemSpriteExtra::create(
-            ButtonSprite::create("SAVE", 80, true, "bigFont.fnt", "GJ_button_01.png", 30, 0.6f),
-            this, menu_selector(TemplateNamePopup::onSave)
+            ButtonSprite::create("SAVE", 70, true, "bigFont.fnt", "GJ_button_01.png", 28, 0.6f),
+            this, menu_selector(SaveTemplatePopup::onSave)
         );
         saveBtn->setPosition({center.width, center.height - 40});
         menu->addChild(saveBtn);
@@ -282,17 +286,18 @@ protected:
     }
 
     void onSave(CCObject*) {
-        std::string name = m_input->getString();
-        if (name.empty()) name = fmt::format("Template {}", g_templates.size() + 1);
-        
-        TemplateManager::saveSelectionAsTemplate(m_editorUI, name);
+        std::string name = m_nameInput->getString();
+        if (name.empty()) {
+            name = fmt::format("Style {}", g_templates.size() + 1);
+        }
+        TemplateSystem::saveAsTemplate(m_ui, name);
         this->onClose(nullptr);
     }
 
 public:
-    static TemplateNamePopup* create(EditorUI* ui) {
-        auto ret = new TemplateNamePopup();
-        if (ret && ret->initAnchored(250.f, 140.f, ui)) {
+    static SaveTemplatePopup* create(EditorUI* ui) {
+        auto ret = new SaveTemplatePopup();
+        if (ret && ret->initAnchored(240.f, 150.f, ui)) {
             ret->autorelease();
             return ret;
         }
@@ -304,12 +309,12 @@ public:
 // ==========================================
 // MAIN MENU
 // ==========================================
-class AutoDecoMenu : public geode::Popup<EditorUI*> {
+class MainMenu : public geode::Popup<EditorUI*> {
 protected:
-    EditorUI* m_editorUI;
+    EditorUI* m_ui;
 
     bool setup(EditorUI* ui) override {
-        m_editorUI = ui;
+        m_ui = ui;
         setTitle("AutoDecoration");
 
         auto menu = CCMenu::create();
@@ -317,92 +322,115 @@ protected:
         m_mainLayer->addChild(menu);
 
         auto center = m_mainLayer->getContentSize() / 2;
-        float startY = center.height + 60;
-        float spacing = 32.0f;
 
-        // Style buttons (2 rows)
-        createStyleBtn("Glow", DecoStyle::Glow, {center.width - 60, startY}, menu);
-        createStyleBtn("Outline", DecoStyle::Outline, {center.width, startY}, menu);
-        createStyleBtn("Shadow", DecoStyle::Shadow, {center.width + 60, startY}, menu);
-        
-        createStyleBtn("Neon", DecoStyle::Neon, {center.width - 60, startY - spacing}, menu);
-        createStyleBtn("Gradient", DecoStyle::Gradient, {center.width, startY - spacing}, menu);
+        // === BUILT-IN STYLES ===
+        auto styleLabel = CCLabelBMFont::create("Quick Styles:", "goldFont.fnt");
+        styleLabel->setPosition({center.width, center.height + 65});
+        styleLabel->setScale(0.5f);
+        m_mainLayer->addChild(styleLabel);
 
-        // Template button
+        createStyleBtn("Glow", BuiltInStyle::Glow, {center.width - 50, center.height + 40}, menu);
+        createStyleBtn("Outline", BuiltInStyle::Outline, {center.width, center.height + 40}, menu);
+        createStyleBtn("Shadow", BuiltInStyle::Shadow, {center.width + 50, center.height + 40}, menu);
+
+        // === TEMPLATES SECTION ===
+        auto templLabel = CCLabelBMFont::create("Custom Templates:", "goldFont.fnt");
+        templLabel->setPosition({center.width, center.height + 10});
+        templLabel->setScale(0.5f);
+        m_mainLayer->addChild(templLabel);
+
+        // Current template display
+        std::string templName = g_templates.empty() ? "(none saved)" : g_templates[g_selectedTemplate].name;
+        auto currentLabel = CCLabelBMFont::create(templName.c_str(), "bigFont.fnt");
+        currentLabel->setPosition({center.width, center.height - 15});
+        currentLabel->setScale(0.4f);
+        currentLabel->setColor({100, 255, 100});
+        m_mainLayer->addChild(currentLabel);
+
+        // Template buttons
         if (!g_templates.empty()) {
-            auto templBtn = CCMenuItemSpriteExtra::create(
-                ButtonSprite::create(
-                    fmt::format("T:{}", g_templates[g_selectedTemplate >= 0 ? g_selectedTemplate : 0].name.substr(0, 6)).c_str(),
-                    50, true, "bigFont.fnt",
-                    g_currentStyle == DecoStyle::CustomTemplate ? "GJ_button_02.png" : "GJ_button_04.png",
-                    25, 0.4f
-                ),
-                this, menu_selector(AutoDecoMenu::onSelectTemplate)
+            auto prevBtn = CCMenuItemSpriteExtra::create(
+                CCSprite::createWithSpriteFrameName("GJ_arrow_01_001.png"),
+                this, menu_selector(MainMenu::onPrevTemplate)
             );
-            templBtn->setPosition({center.width + 60, startY - spacing});
-            menu->addChild(templBtn);
+            prevBtn->setPosition({center.width - 80, center.height - 15});
+            prevBtn->setScale(0.5f);
+            menu->addChild(prevBtn);
+
+            auto nextBtn = CCMenuItemSpriteExtra::create(
+                CCSprite::createWithSpriteFrameName("GJ_arrow_01_001.png"),
+                this, menu_selector(MainMenu::onNextTemplate)
+            );
+            nextBtn->setPosition({center.width + 80, center.height - 15});
+            nextBtn->setScale(0.5f);
+            nextBtn->setScaleX(-0.5f);
+            menu->addChild(nextBtn);
         }
 
-        // Save Template button
-        auto saveTemplBtn = CCMenuItemSpriteExtra::create(
-            ButtonSprite::create("SAVE AS TEMPLATE", 140, true, "bigFont.fnt", "GJ_button_05.png", 25, 0.45f),
-            this, menu_selector(AutoDecoMenu::onSaveTemplate)
+        // Apply Template button
+        auto applyTemplBtn = CCMenuItemSpriteExtra::create(
+            ButtonSprite::create("APPLY TEMPLATE", 110, true, "bigFont.fnt", 
+                g_templates.empty() ? "GJ_button_04.png" : "GJ_button_02.png", 25, 0.45f),
+            this, menu_selector(MainMenu::onApplyTemplate)
         );
-        saveTemplBtn->setPosition({center.width, startY - spacing * 2.2f});
-        menu->addChild(saveTemplBtn);
+        applyTemplBtn->setPosition({center.width, center.height - 45});
+        menu->addChild(applyTemplBtn);
 
-        // Apply button
-        auto applyBtn = CCMenuItemSpriteExtra::create(
-            ButtonSprite::create("APPLY", 100, true, "bigFont.fnt", "GJ_button_01.png", 35, 0.6f),
-            this, menu_selector(AutoDecoMenu::onApply)
+        // Save Template button
+        auto saveBtn = CCMenuItemSpriteExtra::create(
+            ButtonSprite::create("SAVE NEW TEMPLATE", 115, true, "bigFont.fnt", "GJ_button_05.png", 25, 0.45f),
+            this, menu_selector(MainMenu::onSaveTemplate)
         );
-        applyBtn->setPosition({center.width, 35});
-        menu->addChild(applyBtn);
+        saveBtn->setPosition({center.width, center.height - 75});
+        menu->addChild(saveBtn);
 
         return true;
     }
 
-    void createStyleBtn(const char* name, DecoStyle style, CCPoint pos, CCMenu* menu) {
-        bool selected = (g_currentStyle == style);
+    void createStyleBtn(const char* name, BuiltInStyle style, CCPoint pos, CCMenu* menu) {
+        bool sel = (g_builtInStyle == style);
         auto btn = CCMenuItemSpriteExtra::create(
-            ButtonSprite::create(name, 55, true, "bigFont.fnt", 
-                selected ? "GJ_button_02.png" : "GJ_button_04.png", 25, 0.4f),
-            this, menu_selector(AutoDecoMenu::onStyle)
+            ButtonSprite::create(name, 45, true, "bigFont.fnt", 
+                sel ? "GJ_button_02.png" : "GJ_button_04.png", 22, 0.4f),
+            this, menu_selector(MainMenu::onQuickStyle)
         );
         btn->setTag(static_cast<int>(style));
         btn->setPosition(pos);
         menu->addChild(btn);
     }
 
-    void onStyle(CCObject* sender) {
-        g_currentStyle = static_cast<DecoStyle>(static_cast<CCNode*>(sender)->getTag());
+    void onQuickStyle(CCObject* sender) {
+        g_builtInStyle = static_cast<BuiltInStyle>(static_cast<CCNode*>(sender)->getTag());
+        SimpleDecorator::apply(m_ui);
         this->onClose(nullptr);
-        AutoDecoMenu::create(m_editorUI)->show();
     }
 
-    void onSelectTemplate(CCObject*) {
-        g_currentStyle = DecoStyle::CustomTemplate;
-        // Cycle through templates
-        if (!g_templates.empty()) {
-            g_selectedTemplate = (g_selectedTemplate + 1) % g_templates.size();
-        }
+    void onPrevTemplate(CCObject*) {
+        if (g_templates.empty()) return;
+        g_selectedTemplate = (g_selectedTemplate - 1 + g_templates.size()) % g_templates.size();
         this->onClose(nullptr);
-        AutoDecoMenu::create(m_editorUI)->show();
+        MainMenu::create(m_ui)->show();
+    }
+
+    void onNextTemplate(CCObject*) {
+        TemplateSystem::nextTemplate();
+        this->onClose(nullptr);
+        MainMenu::create(m_ui)->show();
+    }
+
+    void onApplyTemplate(CCObject*) {
+        TemplateSystem::applyTemplate(m_ui);
+        this->onClose(nullptr);
     }
 
     void onSaveTemplate(CCObject*) {
         this->onClose(nullptr);
-        TemplateNamePopup::create(m_editorUI)->show();
-    }
-
-    void onApply(CCObject*) {
-        AutoDecorator::applyDecoration(m_editorUI);
-        this->onClose(nullptr);
+        SaveTemplatePopup::create(m_ui)->show();
     }
 
 public:
-    static AutoDecoMenu* create(EditorUI* ui) {
-        auto ret = new AutoDecoMenu();
+    static MainMenu* create(EditorUI* ui) {
+        auto ret = new MainMenu();
         if (ret && ret->initAnchored(280.f, 200.f, ui)) {
             ret->autorelease();
             return ret;
@@ -426,22 +454,22 @@ class $modify(MyEditorUI, EditorUI) {
         auto winSize = CCDirector::sharedDirector()->getWinSize();
 
         auto sprite = CCSprite::createWithSpriteFrameName("GJ_optionsBtn_001.png");
-        sprite->setScale(0.7f);
+        sprite->setScale(0.65f);
         
-        auto btn = CCMenuItemSpriteExtra::create(sprite, this, menu_selector(MyEditorUI::onAutoDecoBtn));
-        btn->setPosition({winSize.width - 85, winSize.height - 25});
+        auto btn = CCMenuItemSpriteExtra::create(sprite, this, menu_selector(MyEditorUI::onOpenMenu));
+        btn->setPosition({winSize.width - 80, winSize.height - 23});
         menu->addChild(btn);
 
         auto label = CCLabelBMFont::create("AD", "bigFont.fnt");
-        label->setScale(0.3f);
+        label->setScale(0.28f);
         label->setPosition(sprite->getContentSize() / 2);
         sprite->addChild(label);
 
-        log::info("AutoDecoration v2.0 with Templates loaded!");
+        log::info("AutoDecoration v3.0 - Template System loaded!");
         return true;
     }
 
-    void onAutoDecoBtn(CCObject*) {
-        AutoDecoMenu::create(this)->show();
+    void onOpenMenu(CCObject*) {
+        MainMenu::create(this)->show();
     }
 };
