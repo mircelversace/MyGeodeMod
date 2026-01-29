@@ -1,6 +1,5 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/EditorUI.hpp>
-#include <Geode/utils/cocos.hpp>
 
 using namespace geode::prelude;
 
@@ -33,15 +32,16 @@ public:
 };
 
 // ==========================================
-// POPUP MENU (Select Style)
+// POPUP MENU (Select Style) - Using Geode Popup
 // ==========================================
-class AutoDecoMenu : public FLAlertLayer {
-public:
-    bool init() {
-        if (!FLAlertLayer::init(nullptr, "Select Style", "Close", nullptr, 400.0f))
-            return false;
-
+class AutoDecoMenu : public geode::Popup<> {
+protected:
+    bool setup() override {
+        setTitle("Select Style");
+        
         auto menu = CCMenu::create();
+        menu->setContentSize(m_mainLayer->getContentSize());
+        menu->setPosition({0, 0});
         m_mainLayer->addChild(menu);
 
         createBtn("Glow Style", 50, DecoStyle::Glow, menu);
@@ -54,14 +54,15 @@ public:
     void createBtn(const char* txt, float y, DecoStyle style, CCMenu* menu) {
         auto sprite = ButtonSprite::create(txt);
         auto btn = CCMenuItemSpriteExtra::create(sprite, this, menu_selector(AutoDecoMenu::onSelect));
-        btn->setUserObject(CCInteger::create((int)style));
-        btn->setPositionY(y);
+        btn->setTag(static_cast<int>(style));
+        auto center = m_mainLayer->getContentSize() / 2;
+        btn->setPosition({center.width, center.height + y});
         menu->addChild(btn);
     }
 
     void onSelect(CCObject* sender) {
-        auto val = static_cast<CCInteger*>(static_cast<CCNode*>(sender)->getUserObject())->getValue();
-        g_currentStyle = (DecoStyle)val;
+        int val = static_cast<CCNode*>(sender)->getTag();
+        g_currentStyle = static_cast<DecoStyle>(val);
         
         const char* name = "Unknown";
         if(g_currentStyle == DecoStyle::Glow) name = "Glow";
@@ -69,13 +70,18 @@ public:
         if(g_currentStyle == DecoStyle::Tech) name = "Tech";
 
         Notification::create(fmt::format("{} Selected", name).c_str(), NotificationIcon::Info)->show();
-        this->onBtn1(sender); // Close
+        this->onClose(sender);
     }
 
+public:
     static AutoDecoMenu* create() {
         auto ret = new AutoDecoMenu();
-        if (ret && ret->init()) { ret->autorelease(); return ret; }
-        CC_SAFE_DELETE(ret); return nullptr;
+        if (ret && ret->initAnchored(300.f, 200.f)) {
+            ret->autorelease();
+            return ret;
+        }
+        CC_SAFE_DELETE(ret);
+        return nullptr;
     }
 };
 
@@ -86,38 +92,32 @@ class $modify(MyEditorUI, EditorUI) {
     bool init(LevelEditorLayer* editorLayer) {
         if (!EditorUI::init(editorLayer)) return false;
 
+        // Get window size properly
+        auto winSize = CCDirector::sharedDirector()->getWinSize();
+
         // Find the menu to attach to (usually the left side menu or create a new one)
         auto menu = this->getChildByID("editor-buttons-menu");
-        if (!menu) return true;
+        if (!menu) {
+            // Create our own menu if the expected one doesn't exist
+            auto newMenu = CCMenu::create();
+            newMenu->setID("autodeco-menu"_spr);
+            newMenu->setPosition({0, 0});
+            this->addChild(newMenu);
+            menu = newMenu;
+        }
 
         // --- SHOW BUTTON ---
         // This is the main button visible in editor
-        auto showSprite = ButtonSprite::create("Show", 40, true, "bigFont.fnt", "GJ_button_04.png", 30, 0.8f);
+        auto showSprite = ButtonSprite::create("AutoDeco", 60, true, "bigFont.fnt", "GJ_button_04.png", 30, 0.6f);
         auto showBtn = CCMenuItemSpriteExtra::create(showSprite, this, menu_selector(MyEditorUI::onShowAutoDecoMenu));
         showBtn->setID("show-autodeco-btn"_spr);
-        showBtn->setPosition({280, 80}); // Adjust position as needed
-        menu->addChild(showBtn);
-
-        // --- APPLY BUTTON (Hidden initially, or placed above Copy) ---
-        // Creating a secondary menu for the tools
-        auto toolsMenu = CCMenu::create();
-        toolsMenu->setID("autodeco-tools-menu"_spr);
-        toolsMenu->setPosition({0, 0});
-        this->addChild(toolsMenu);
-
-        auto applySprite = ButtonSprite::create("Apply", 40, true, "bigFont.fnt", "GJ_button_01.png", 30, 0.6f);
-        auto applyBtn = CCMenuItemSpriteExtra::create(applySprite, this, menu_selector(MyEditorUI::onApplyAutoDeco));
-        applyBtn->setPosition({ winSize.width - 50, winSize.height - 100 }); // Top Right corner example
-        toolsMenu->addChild(applyBtn);
+        showBtn->setPosition({winSize.width - 70, winSize.height - 50});
+        static_cast<CCMenu*>(menu)->addChild(showBtn);
 
         return true;
     }
 
     void onShowAutoDecoMenu(CCObject*) {
         AutoDecoMenu::create()->show();
-    }
-
-    void onApplyAutoDeco(CCObject*) {
-        AutoBuilder::applyToSelection(this);
     }
 };
