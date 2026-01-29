@@ -1,0 +1,12 @@
+{
+	"geode": "3.0.0",
+	"gd": {
+		"win": "2.206"
+	},
+	"id": "mircels.auto_decoration",
+	"name": "AutoDecoration",
+	"version": "v1.0.0",
+	"developer": "Mircels",
+	"description": "Auto-decorate selected blocks with Glow, Modern, or Tech styles.",
+	"dependencies": []
+}

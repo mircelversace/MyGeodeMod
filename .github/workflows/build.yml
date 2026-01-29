@@ -1,0 +1,22 @@
+name: Build Geode Mod
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Mod
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build with Geode SDK
+        uses: geode-sdk/build-geode-mod@main
+        with:
+          combine: true
+          target: windows

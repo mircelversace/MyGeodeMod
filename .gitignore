@@ -1,0 +1,8 @@
+build/
+.geode_cache/
+*.geode
+*.lib
+*.exp
+*.obj
+*.pdb
+*.idb
