@@ -6,7 +6,6 @@ project(${PROJECT_NAME})
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Access environment variable directly
 if (DEFINED ENV{GEODE_SDK})
     file(TO_CMAKE_PATH "$ENV{GEODE_SDK}" GEODE_SDK_PATH)
     message(STATUS "Found GEODE_SDK in env: ${GEODE_SDK_PATH}")
@@ -14,11 +13,14 @@ elseif (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/geode")
     set(GEODE_SDK_PATH "${CMAKE_CURRENT_SOURCE_DIR}/geode")
     message(STATUS "Found geode in local directory: ${GEODE_SDK_PATH}")
 else()
-    message(FATAL_ERROR "Geode SDK not found in environment or local directory!")
+    message(FATAL_ERROR "Geode SDK not found!")
 endif()
 
-# Add to search paths
+# Add standard Geode CMake paths
 list(APPEND CMAKE_MODULE_PATH "${GEODE_SDK_PATH}/cmake")
+list(APPEND CMAKE_MODULE_PATH "${GEODE_SDK_PATH}/bindings/cmake") 
+
+# Configure search path for Config mode
 list(APPEND CMAKE_PREFIX_PATH "${GEODE_SDK_PATH}")
 
 find_package(Geode REQUIRED)
