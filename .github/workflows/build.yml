@@ -1,0 +1,30 @@
+name: Build Geode Mod
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  build:
+    name: Build for Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build the mod
+        uses: geode-sdk/build-geode-mod@main
+        with:
+          sdk: v4.0.0
+          target: Win64
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mircels.auto_decoration.geode
+          path: build/*.geode

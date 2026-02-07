@@ -1,0 +1,15 @@
+{
+	"geode": "1.0.0",
+	"id": "antigravity.autobuild",
+	"name": "AutoBuild",
+	"version": "v1.0.0",
+	"developer": "Antigravity",
+	"description": "Automatically decorate blocks and spikes with 20+ presets.",
+	"dependencies": [
+		{
+			"id": "geode.node-ids",
+			"version": ">=1.0.0",
+			"importance": "recommended"
+		}
+	]
+}
